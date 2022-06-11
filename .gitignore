@@ -131,3 +131,4 @@ dmypy.json
 # Data
 .json
 .json.gz
+.txt
