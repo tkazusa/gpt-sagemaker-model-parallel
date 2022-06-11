@@ -1,1 +1,1 @@
-# gpt2-sagemaker-model-parallel
+# gpt-sagemaker-model-parallel
