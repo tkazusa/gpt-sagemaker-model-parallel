@@ -13,6 +13,12 @@ import smdistributed.modelparallel.torch as smp
 import torch
 import torch.nn as nn
 import torch.utils.data
+# For Training Compiler
+import torch_xla
+# import torch_xla.amp
+# import torch_xla.amp.syncfree.Adam as adam
+# import torch_xla.amp.syncfree.SGD as SGD
+import torch_xla.core.xla_model as xm
 import transformers
 from smdistributed.modelparallel.torch.nn import FusedLayerNorm as LayerNorm
 from smdistributed.modelparallel.torch.nn.huggingface.gpt2 import (
@@ -426,6 +432,8 @@ def train(
     start_batch_index,
     num_params,
     total_steps,
+    # For Training Compiler
+    device,
     args,
 ):
     model.train()
@@ -535,7 +543,14 @@ def train(
         if smp.rank() == 0:
             print(f"Reading data from training path {train_dataloader.dataset.input_paths}")
 
-        for batch_idx, input_data in enumerate(train_dataloader):
+
+        # For Training Compiler
+        import torch_xla.distributed.parallel_loader as pl
+        train_device_dataloader=pl.MpDeviceLoader(train_dataloader, device)
+
+        # For Training Compiler
+        # for batch_idx, input_data in enumerate(train_dataloader):
+        for batch_idx, input_data in enumerate(train_device_dataloader):
             if batch_idx < start_batch_index:
                 if smp.rank() == 0:
                     print(
@@ -581,10 +596,14 @@ def train(
             if args.fp16:
                 optimizer.update_master_grads()
                 optimizer.clip_master_grads(args.grad_clip)
-                optimizer.step()
+                # For Training Compiler
+                # optimizer.step()
+                xm.optimizer_step(optimizer)
                 overflow = optimizer.overflow
             else:
-                optimizer.step()
+                # For Training Compiler
+                # optimizer.step()
+                xm.optimizer_step(optimizer)
 
             if not (args.fp16 and overflow):
                 lr_scheduler.step()
@@ -692,6 +711,9 @@ def train(
                 use_last_file_only=args.fast_validation > 0,
                 data_type=data_type,
             )
+
+        # For Training Compiler
+        xm.mark_step()
 
     return total_steps, throughput, loss_metric
 
@@ -969,6 +991,8 @@ def main():
     if args.active_microbatches is not None:
         smp_config["active_microbatches"] = args.active_microbatches
 
+
+    print("--- smp.config ---", smp_config)
     smp.init(smp_config)
 
     if smp.rank() == 0:
@@ -1048,7 +1072,10 @@ def main():
     # SMP modification: Set the device to the GPU ID used by the current process.
     # Input tensors should be transferred to this device.
     torch.cuda.set_device(smp.local_rank())
-    device = torch.device("cuda")
+
+    # For Training Compiler
+    # device = torch.device("cuda")
+    device = xm.xla_device()
 
     if not args.same_seed:
         # Set seed by tp_rank to prevent weights from being the same on different tp_ranks
@@ -1099,7 +1126,9 @@ def main():
             param_groups, betas=(args.beta1, args.beta2), lr=args.lr, weight_decay=args.weight_decay
         )
     else:
+        # For Training Compiler
         optimizer = optim.Adam(
+        # optimizer = adam(
             param_groups, betas=(args.beta1, args.beta2), lr=args.lr, weight_decay=args.weight_decay
         )
 
@@ -1179,6 +1208,8 @@ def main():
         start_batch_index,
         num_params,
         total_steps,
+        # For Training Compiler
+        device,
         args,
     )
     time_to_train = time.time() - start
@@ -1223,6 +1254,7 @@ def main():
         print("SMP training finished successfully")
 
 
+# For Training Compiler
 def _mp_fn(index):
     # For xla_spawn (TPUs)
     main()

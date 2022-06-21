@@ -33,10 +33,12 @@ if __name__ == "__main__":
         "data_type": "c4/en",
         # below flag loads model and optimizer state from checkpoint_s3_uri
         # 'load_partial': 1,
+        "n_gpus": 8,
+
     }
     hyperparameters.update(training_config)
 
-    tp_degree = 4
+    tp_degree = 1
     pp_degree = 1
 
     # Params required by SMP
@@ -137,7 +139,8 @@ if __name__ == "__main__":
     validation_directory_path = config["fsx_config"]["validation_directory_path"]
 
     model_name = "gpt-2-small"
-    base_job_name = f'smp-{model_name}-{machine_str}-tp{tp_degree}-pp{pp_degree}-bs{hyperparameters["train_batch_size"]}'
+    # base_job_name = f'smp-{model_name}-{machine_str}-tp{tp_degree}-pp{pp_degree}-bs{hyperparameters["train_batch_size"]}'
+    base_job_name = f'smp-{model_name}-{machine_str}-tp8-pp1-bs{hyperparameters["train_batch_size"]}'
 
     # Initialize the Amazon Training Compiler
     compiler_config = TrainingCompilerConfig()
@@ -149,11 +152,11 @@ if __name__ == "__main__":
 
 
     huggingface_estimator = HuggingFace(
-        # entry_point=LAUNCH_SM_TRAINING_COMPILER,
-        # source_dir=SORCE_DIR,
-        # compiler_config=compiler_config,
-        entry_point="train_gpt_simple.py",
+        entry_point=LAUNCH_SM_TRAINING_COMPILER,
         source_dir=SORCE_DIR,
+        compiler_config=compiler_config,
+        # entry_point="train_gpt_simple.py",
+        # source_dir=SORCE_DIR,
         role=role,
         metrics_definition=metric_definitions,
         instance_type=instance_type,
@@ -164,7 +167,7 @@ if __name__ == "__main__":
         transformers_version="4.17",
         pytorch_version="1.10",
         py_version="py38",
-        distribution=distribution,
+        # distribution=distribution,
         hyperparameters=hyperparameters,
         debugger_hook_config=False,
         disable_profiler=True,
