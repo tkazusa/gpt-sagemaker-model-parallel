@@ -1,5 +1,3 @@
-
-   
 import argparse
 import collections
 import logging
@@ -204,7 +202,7 @@ def save(
     translate_to_hf=False,
     seq_length=1024,
     batch_idx=0,
-):
+):  
     save_fn = save_fp16_optimizer
     save_dict = {
         "cli_args": args.__dict__,
@@ -1197,6 +1195,7 @@ def main():
 
         base_path = f"trained_gpt_nparams-{num_params}_steps-{total_steps}.pt"
         out_path = os.path.join(args.model_dir, base_path)
+
         if args.save_or_verify_ckptsum:
             # Save optimizer and model tensor sums and scalars before saving
             save_ckptsum(args, model, optimizer, filename=os.path.join(args.model_dir, "saved_sum"))

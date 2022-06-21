@@ -38,7 +38,7 @@ if __name__ == "__main__":
 
     # Params required by SMP
     smp_configs = {
-        "save_final_full_model": 0,
+        "save_final_full_model": 1,
         "manual_partition": 1,
         "skip_full_optimizer": 1,
         "shard_optimizer_state": 1,
@@ -89,12 +89,15 @@ if __name__ == "__main__":
         "custom_mpi_options": mpioptions
     }
 
+    pp_degree = hyperparameters["pipeline_parallel_degree"]
+    tp_degree = hyperparameters["tensor_parallel_degree"]
+
     smp_parameters = {
         "ddp": True,
-        "tensor_parallel_degree": hyperparameters["tensor_parallel_degree"],
+        "tensor_parallel_degree": tp_degree,
         # partitions is a required param in the current SM SDK so it needs to be passed,
         # these two map to the same config
-        "partitions": hyperparameters["pipeline_parallel_degree"],
+        "partitions": pp_degree,
         "shard_optimizer_state": hyperparameters["shard_optimizer_state"] > 0,
         "prescaled_batch": hyperparameters["prescaled_batch"] > 0,
         "fp16_params": hyperparameters["fp16"] > 0,
@@ -124,11 +127,16 @@ if __name__ == "__main__":
     with open("config.json") as f:
         config = json.loads(f.read())
     role = config["aws_config"]["role"]
+    subnets = config["fsx_config"]["subnets"]
+    security_group_ids = config["fsx_config"]["security_group_ids"]
 
     machine_str = instance_type.split(".")[1] + instance_type.split(".")[2][:3]
-    pp_degree = hyperparameters["pipeline_parallel_degree"]
-    tp_degree = hyperparameters["tensor_parallel_degree"]
-    base_job_name = f'smp-{model_config}-{machine_str}-tp{tp_degree}-pp{pp_degree}-bs{hyperparameters["train_batch_size"]}'
+    file_sytem_id = config["fsx_config"]["file_system_id"]
+    train_directory_path = config["fsx_config"]["train_directory_path"]
+    validation_directory_path = config["fsx_config"]["validation_directory_path"]
+
+    model_name = "gpt-2-small"
+    base_job_name = f'smp-{model_name}-{machine_str}-tp{tp_degree}-pp{pp_degree}-bs{hyperparameters["train_batch_size"]}'
 
 
     huggingface_estimator = HuggingFace(
@@ -138,8 +146,8 @@ if __name__ == "__main__":
         metrics_definition=metric_definitions,
         instance_type=instance_type,
         instance_count=instance_count,
-        # subnets=['xxxxxxxxxxxxxx'],
-        # security_group_ids=['xxxxxxxxxxxxxx'],
+        subnets=subnets,
+        security_group_ids=security_group_ids,
         volume_size=volume_size,
         transformers_version="4.17",
         pytorch_version="1.10",
@@ -147,21 +155,19 @@ if __name__ == "__main__":
         distribution=distribution,
         hyperparameters=hyperparameters,
         debugger_hook_config=False,
+        base_job_name=base_job_name
     )
 
-    #train_fs_input = FileSystemInput(file_system_id=file_sytem_id,
-    #                                    file_system_type="FSxLustre",
-    #                                    directory_path=train_directory_path,
-    #                                    file_system_access_mode='ro')
-    #val_fs_input = FileSystemInput(file_system_id=file_sytem_id,
-    #                                    file_system_type="FSxLustre",
-    #                                    directory_path=val_directory_path,
-    #                                    file_system_access_mode='ro')
+    train_fs_input = FileSystemInput(file_system_id=file_sytem_id,
+                                       file_system_type="FSxLustre",
+                                        directory_path=train_directory_path,
+                                        file_system_access_mode='ro')
+    val_fs_input = FileSystemInput(file_system_id=file_sytem_id,
+                                        file_system_type="FSxLustre",
+                                        directory_path=validation_directory_path,
+                                        file_system_access_mode='ro')
 
-    # print(huggingface_estimator.hyperparameters())
-    # starting the train job with our uploaded datasets as input
+    # train_dir = "s3://ricoh-poc/c4/en_gpt_preprocessed_small/train/"
+    # validation_dir = "s3://ricoh-poc/c4/en_gpt_preprocessed_small/validation/"
 
-    train_dir = "s3://ricoh-poc/c4/en_gpt_preprocessed_small/train/"
-    validation_dir = "s3://ricoh-poc/c4/en_gpt_preprocessed_small/validation/"
-
-    huggingface_estimator.fit({"train": train_dir, "test": validation_dir})
+    huggingface_estimator.fit({"train": train_fs_input, "test": val_fs_input})
