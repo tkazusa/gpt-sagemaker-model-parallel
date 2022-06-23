@@ -4,8 +4,8 @@ from itertools import chain
 from datasets import load_dataset
 from transformers import GPT2TokenizerFast
 
-RAW_DATA_DIR = "./en"
-SAVE_DIR = "./en_gpt_preprocessed"
+RAW_DATA_DIR = "../fsx/ns1/en_unzip"
+SAVE_DIR = "../fsx/ns1/en_gpt_preprocessed_2048_small"
 BLOCK_SIZE = 2048
 
 def group_texts(examples, block_size):
@@ -22,14 +22,15 @@ def group_texts(examples, block_size):
     }
     return result
 
-
 if __name__ == "__main__":
-    c4_subset = load_dataset('allenai/c4', data_files='en/c4-train.00000-of-01024.json.gz', cache_dir=RAW_DATA_DIR)
-    c4_subset = load_dataset('allenai/c4', data_files='en/*.json.gz', cache_dir=RAW_DATA_DIR)
-    del c4_subset
+    # c4_subset = load_dataset('allenai/c4', data_files='en/c4-train.00000-of-01024.json.gz', cache_dir=RAW_DATA_DIR)
+    # c4_subset = load_dataset('allenai/c4', data_files='en/*.json.gz', cache_dir=RAW_DATA_DIR)
+    # del c4_subset
 
-    train_data_files = glob.glob(RAW_DATA_DIR+"/c4-train.*")
-    validation_data_files = glob.glob(RAW_DATA_DIR+"/c4-validation.*")
+    train_data_files = glob.glob(RAW_DATA_DIR+"/c4-train.00000-of-01024*")
+    print(train_data_files)
+    validation_data_files = glob.glob(RAW_DATA_DIR+"/c4-validation.00000-of-00008*")
+    print(validation_data_files)
     tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
     
     for train_data_file in train_data_files:
@@ -49,7 +50,7 @@ if __name__ == "__main__":
 
         dataset = dataset.shuffle(seed=42)
         train_path = SAVE_DIR + "/train"
-        save_path=f"{train_path}/train_dataset_512_filtered_{train_data_file[9:]}"
+        save_path=f"{train_path}/train_dataset_2048_filtered_{train_data_file[-19:]}"
         dataset.to_json(save_path, orient="records", lines=True)
 
     for validation_data_file in validation_data_files:
@@ -69,5 +70,5 @@ if __name__ == "__main__":
         
         dataset = dataset.shuffle(seed=42)
         validation_path = SAVE_DIR + "/validation"
-        save_path=f"{validation_path}/validation_dataset_512_filtered_{validation_data_file[14:]}"
-        dataset.to_json(save_path, orient="records", lines=True)    
+        save_path=f"{validation_path}/validation_dataset_2048_filtered_{validation_data_file[-19:]}"
+        dataset.to_json(save_path, orient="records", lines=True)
