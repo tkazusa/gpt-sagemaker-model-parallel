@@ -800,6 +800,7 @@ def parse_args():
     model_grp.add_argument("--use_adamw", type=int, default=0, help="Use adamw optimizer")
 
     smp_grp = parser.add_argument_group(title="smp", description="smp")
+    smp_grp.add_argument("--ddp", type=bool, default=True)
     smp_grp.add_argument("--tensor_parallel_degree", type=int, default=8)
     smp_grp.add_argument("--pipeline_parallel_degree", type=int, default=1)
     smp_grp.add_argument("--microbatches", type=int, default=1)
@@ -943,7 +944,7 @@ def main():
 
     # any value here is overriden by the config set in notebook when launching the sagemaker job
     smp_config = {
-        "ddp": True,
+        "ddp": args.ddp,
         "tensor_parallel_degree": args.tensor_parallel_degree,
         "pipeline_parallel_degree": args.pipeline_parallel_degree,
         "microbatches": args.microbatches,

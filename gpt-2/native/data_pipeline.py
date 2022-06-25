@@ -12,10 +12,8 @@ import torch
 
 class DummyDataset(torch.utils.data.dataset.Dataset):
     def __init__(self, length, data_type="openwebtext"):
-        if data_type == "openwebtext":
+        if data_type == "c4/en": 
             self.batch = (torch.Tensor(0), torch.Tensor(0))
-        elif data_type == "wiki":
-            self.batch = (torch.Tensor(0), torch.Tensor(0), torch.Tensor(0), torch.Tensor(0), torch.Tensor(0))
         self.length = length
 
     def __getitem__(self, index):
