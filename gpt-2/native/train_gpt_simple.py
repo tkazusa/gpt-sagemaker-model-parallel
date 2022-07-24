@@ -496,7 +496,7 @@ def train(
 
     start = time.time()
     throughput = None
-    to_save = {"loss": [], "val_loss": []}
+    to_save = {"loss": [], "val_loss": [], "val_ppl": []}
     loss_metric = 0
 
     def should_record():
@@ -611,14 +611,15 @@ def train(
                 )
                 if is_main_process(smp.rank()):
                     print(
-                        f"({int(time.time()-start)}s) Batch {total_steps - 1} Validation loss: {val_loss}"
+                        f"({int(time.time()-start)}s) Batch {total_steps - 1} Validation loss: {val_loss};"
                     )
                     print(
-                        f"({int(time.time()-start)}s) Batch {total_steps - 1} Validation perplexity: {val_ppl}"
+                        f"({int(time.time()-start)}s) Batch {total_steps - 1} Validation perplexity: {val_ppl};"
                     )
                 loss_metric = val_loss
                 if args.logits_output:
                     to_save["val_loss"].append(val_loss)
+                    to_save["val_ppl"].append(val_ppl)
                 model = model.train()
                 if args.preserve_np_state > 0:
                     np.random.set_state(cur_state)
@@ -936,6 +937,9 @@ def parse_args():
 
 def main():
     args = parse_args()
+    print("--", args)
+    print("--", args.tensor_parallel_degree, args.pipeline_parallel_degree)
+
 
     if args.shard_optimizer_state > 0 and not args.skip_full_optimizer:
         raise ValueError(
@@ -968,6 +972,7 @@ def main():
     if args.active_microbatches is not None:
         smp_config["active_microbatches"] = args.active_microbatches
 
+    print("--- smp.config ---", smp_config)
     smp.init(smp_config)
 
     if smp.rank() == 0:
@@ -1011,6 +1016,7 @@ def main():
         return_dict=True,
     )
 
+    print(f"--model: {model_config}")
     # the following improves start-up time by skipping proper initialization
     # of weights in the original model. this is not a problem because DistributedModel
     # will override those weights anyway when tensor_parallel_degree > 1.
@@ -1033,11 +1039,13 @@ def main():
         with smp.delay_param_initialization(
             enabled=(smp.tp_size() > 1 and args.match_weights < 1 and args.delayed_param > 0)
         ):
+            print("---- load GPT-J model ------ ")
             model = AutoModelForCausalLM.from_config(model_config)
-            
+
     torch.set_default_dtype(torch.float32)
 
     if args.fp16:
+        print("---- Use FP16 ----")
         model = FP16_Module(model)
 
     num_params = sum([np.prod(p.size()) for p in model.parameters()])
