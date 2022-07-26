@@ -2,7 +2,7 @@ import glob
 from itertools import chain
 
 from datasets import load_dataset
-from transformers import GPT2TokenizerFast
+from transformers import GPT2TokenizerFast, T5Tokenizer
 
 RAW_DATA_DIR = "../fsx/ns1/en_unzip"
 SAVE_DIR = "../fsx/ns1/en_gpt_preprocessed_2048_small"
@@ -31,6 +31,9 @@ if __name__ == "__main__":
     print(train_data_files)
     validation_data_files = glob.glob(RAW_DATA_DIR+"/c4-validation.00000-of-00008*")
     print(validation_data_files)
+
+    # Select tokenizer
+    # tokenizer = T5Tokenizer.from_pretrained("rinna/japanese-gpt-1b")
     tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
     
     for train_data_file in train_data_files:
