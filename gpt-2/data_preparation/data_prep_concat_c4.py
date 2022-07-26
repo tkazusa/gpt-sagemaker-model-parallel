@@ -38,7 +38,11 @@ if __name__ == "__main__":
         print(dataset)
 
         dataset = dataset.map(lambda e: tokenizer(e['text']), num_proc=96)
-        dataset = dataset['train'].remove_columns(['text', 'timestamp'])
+        # dataset = dataset['train'].remove_columns(['text', 'timestamp'])
+        columns = dataset['train'].column_names
+        columns.remove('input_ids')
+        columns.remove('attention_mask')
+        dataset = dataset['train'].remove_columns(columns)
         print(dataset)
 
         dataset = dataset.map(group_texts, fn_kwargs={"block_size": BLOCK_SIZE}, batched=True, num_proc=96)
