@@ -104,7 +104,6 @@ def create_pretraining_dataloader(
             data,
             sampler=sampler,
             batch_size=batch_size,
-            num_workers=0,
             pin_memory=True,
             drop_last=True,
         )

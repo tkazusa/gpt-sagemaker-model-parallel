@@ -19,9 +19,7 @@ from smdistributed.modelparallel.torch.nn.huggingface.gpt2 import (
     translate_hf_state_dict_to_smdistributed, translate_state_dict_to_hf_gpt2)
 from torch import optim
 from torch.nn.parallel.distributed import DistributedDataParallel
-from transformers import (CONFIG_MAPPING, MODEL_FOR_CAUSAL_LM_MAPPING,
-                          AutoConfig, AutoModelForCausalLM, AutoTokenizer,
-                          GPT2Config, default_data_collator, set_seed)
+from transformers import AutoModelForCausalLM, GPT2Config, set_seed
 from transformers.trainer_utils import is_main_process
 
 from data_pipeline import create_pretraining_dataloader
@@ -432,6 +430,7 @@ def train(
     if args.parallel_proc_data_processing:
         pool = ProcessPoolExecutor(1)
 
+    
     dp_rank = smp.dp_rank() if not args.prescaled_batch else smp.rdp_rank()
     dp_size = smp.dp_size() if not args.prescaled_batch else smp.rdp_size()
     data_type = args.data_type
@@ -448,7 +447,7 @@ def train(
             if p.endswith(file_extension)
         ]
     )
-
+    
     train_dataloader = create_pretraining_dataloader(
         [train_paths[start_train_path_index]],
         args.train_batch_size,
@@ -463,10 +462,6 @@ def train(
     )
 
     if args.validation_freq is not None:
-        # load all validation examples
-        if smp.rank() == 0:
-            print("Creating val dataloader")
-
         if args.zipped_data > 0:
             file_extension = ".json.gz"
         else:
@@ -478,7 +473,6 @@ def train(
                 if p.endswith(file_extension)
             ]
         )
-
         val_dataloader = create_pretraining_dataloader(
             val_paths,
             args.val_batch_size,
@@ -491,8 +485,6 @@ def train(
             use_last_file_only=args.fast_validation > 0,
             data_type=data_type,
         )
-        if smp.rank() == 0:
-            print("Created val dataloader")
 
     start = time.time()
     throughput = None
@@ -599,7 +591,7 @@ def train(
             throughput = sample_processed / step_time
             if smp.rank() == 0 and not total_steps % args.logging_freq:
                 print(
-                    f"({int(time_elapsed)}s), Batch {total_steps - 1} Loss: {loss.item()}, Speed: {throughput} samples/sec"
+                    f"({int(time_elapsed)}s), Batch {total_steps - 1} Loss: {loss.item()}, Speed: {throughput} samples/sec, Step time {step_time}"
                 )
 
             # evaluate on validation
@@ -611,10 +603,10 @@ def train(
                 )
                 if is_main_process(smp.rank()):
                     print(
-                        f"({int(time.time()-start)}s) Batch {total_steps - 1} Validation loss: {val_loss};"
+                        f"({int(time.time()-start)}s) Batch {total_steps - 1} Validation loss: {val_loss}"
                     )
                     print(
-                        f"({int(time.time()-start)}s) Batch {total_steps - 1} Validation perplexity: {val_ppl};"
+                        f"({int(time.time()-start)}s) Batch {total_steps - 1} Validation perplexity: {val_ppl}"
                     )
                 loss_metric = val_loss
                 if args.logits_output:
@@ -670,7 +662,7 @@ def train(
             break
 
         del train_dataloader
-
+        
         if args.parallel_proc_data_processing:
             s = time.time()
             train_dataloader = dataset_future.result(timeout=None)
@@ -937,9 +929,6 @@ def parse_args():
 
 def main():
     args = parse_args()
-    print("--", args)
-    print("--", args.tensor_parallel_degree, args.pipeline_parallel_degree)
-
 
     if args.shard_optimizer_state > 0 and not args.skip_full_optimizer:
         raise ValueError(
@@ -972,7 +961,6 @@ def main():
     if args.active_microbatches is not None:
         smp_config["active_microbatches"] = args.active_microbatches
 
-    print("--- smp.config ---", smp_config)
     smp.init(smp_config)
 
     if smp.rank() == 0:
@@ -1016,7 +1004,6 @@ def main():
         return_dict=True,
     )
 
-    print(f"--model: {model_config}")
     # the following improves start-up time by skipping proper initialization
     # of weights in the original model. this is not a problem because DistributedModel
     # will override those weights anyway when tensor_parallel_degree > 1.
@@ -1039,13 +1026,11 @@ def main():
         with smp.delay_param_initialization(
             enabled=(smp.tp_size() > 1 and args.match_weights < 1 and args.delayed_param > 0)
         ):
-            print("---- load GPT-J model ------ ")
             model = AutoModelForCausalLM.from_config(model_config)
 
     torch.set_default_dtype(torch.float32)
 
     if args.fp16:
-        print("---- Use FP16 ----")
         model = FP16_Module(model)
 
     num_params = sum([np.prod(p.size()) for p in model.parameters()])

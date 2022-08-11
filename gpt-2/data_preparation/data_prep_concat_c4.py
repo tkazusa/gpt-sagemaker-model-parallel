@@ -4,6 +4,8 @@ from itertools import chain
 from datasets import load_dataset
 from transformers import GPT2TokenizerFast, T5Tokenizer
 
+# EC2 を FSx for Lustre へマウントし、 そのディレクトリを指定
+# マウント方法参考 URL: https://docs.aws.amazon.com/ja_jp/fsx/latest/LustreGuide/mounting-ec2-instance.html
 RAW_DATA_DIR = "../fsx/ns1/en_unzip"
 SAVE_DIR = "../fsx/ns1/en_gpt_preprocessed_2048_small"
 BLOCK_SIZE = 2048
@@ -23,25 +25,26 @@ def group_texts(examples, block_size):
     return result
 
 if __name__ == "__main__":
-    # c4_subset = load_dataset('allenai/c4', data_files='en/c4-train.00000-of-01024.json.gz', cache_dir=RAW_DATA_DIR)
-    # c4_subset = load_dataset('allenai/c4', data_files='en/*.json.gz', cache_dir=RAW_DATA_DIR)
-    # del c4_subset
+    # HuggingFace datasets から データをダウンロード。 マウントしてある FSx for Lustre 上にキャッシュを保存。
+    c4_subset = load_dataset('allenai/c4', data_files='multilingual/c4-ja.*.json.gz', cache_dir=RAW_DATA_DIR)
+    del c4_subset
 
+    # キャッシュ に保存されているファイルのファイル名を取得、ここでは試しに1ファイルのみを読み込んでいる。
     train_data_files = glob.glob(RAW_DATA_DIR+"/c4-train.00000-of-01024*")
     print(train_data_files)
     validation_data_files = glob.glob(RAW_DATA_DIR+"/c4-validation.00000-of-00008*")
     print(validation_data_files)
 
-    # Select tokenizer
+    # tokenizer を選択
     # tokenizer = T5Tokenizer.from_pretrained("rinna/japanese-gpt-1b")
-    tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
+    # tokenizer = GPT2TokenizerFast.from_pretrained("gpt2")
+    tokenizer = T5Tokenizer.from_pretrained("megagonlabs/t5-base-japanese-web")
     
     for train_data_file in train_data_files:
         dataset = load_dataset('json', data_files=[train_data_file], cache_dir=RAW_DATA_DIR + "/cache")
         print(dataset)
 
         dataset = dataset.map(lambda e: tokenizer(e['text']), num_proc=96)
-        # dataset = dataset['train'].remove_columns(['text', 'timestamp'])
         columns = dataset['train'].column_names
         columns.remove('input_ids')
         columns.remove('attention_mask')
