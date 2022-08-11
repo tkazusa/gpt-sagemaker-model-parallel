@@ -1,0 +1,15 @@
+{
+    "aws_config": {
+        "role": "arn:aws:iam::476480844082:role/service-role/AmazonSageMaker-ExecutionRole-20220526T104411"
+    },
+    "fsx_config": {
+        "subnets": ["subnet-0c2681c108f8a312d", "subnet-0fc9bb3e1e2ce9e3f", "subnet-0859deb17aa07d064", "subnet-04006302d184a3d73"], 
+        "security_group_ids": ["sg-06141a8a5335882ea"],
+        "file_system_id": "fs-09130e5bac9d34fe6",
+        "train_directory_path": "/mwb7zbmv/ns1/ja_megagon_2048/train",
+        "validation_directory_path": "/mwb7zbmv/ns1/ja_megagon_2048/validation"
+    }
+}
+
+
+
