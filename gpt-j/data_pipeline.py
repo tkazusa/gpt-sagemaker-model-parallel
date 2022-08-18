@@ -24,8 +24,8 @@ class DummyDataset(torch.utils.data.dataset.Dataset):
 
 
 
-###### Load Openwebtext pretraining data ######
-class C4enPretrainingDataset(torch.utils.data.Dataset):
+# 前処理済の C4 事前学習データをロード
+class C4PretrainingDataset(torch.utils.data.Dataset):
     def __init__(self, input_paths: List[str], max_sequence_length=None, zipped=False, use_last_file_only=False):
         self.input_paths = input_paths
         self.max_sequence_length = max_sequence_length
@@ -73,6 +73,7 @@ class C4enPretrainingDataset(torch.utils.data.Dataset):
         return iids, attns
 
 
+# HuggingFace Dataloader を作成する。 SageMaker Model Parallel の rank が 0 でない場合ダミーの dataloader を作成する 
 def create_pretraining_dataloader(
     input_paths: List[str],
     batch_size: int,
@@ -87,7 +88,7 @@ def create_pretraining_dataloader(
 ):
     if smp.pp_rank() == 0:
         if data_type == "c4":
-            data = C4enPretrainingDataset(
+            data = C4PretrainingDataset(
                 input_paths=input_paths, max_sequence_length=max_sequence_length, zipped=zipped, use_last_file_only=use_last_file_only
             )
         else:
