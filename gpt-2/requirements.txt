@@ -1,8 +1,0 @@
-datasets
-numpy
-sagemaker
-scipy
-torchnet
-smdebug
-humanize
-transformers==4.17.0
