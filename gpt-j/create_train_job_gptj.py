@@ -1,5 +1,6 @@
 import json
 import os
+import uuid
 
 import sagemaker
 import sagemaker.huggingface
@@ -15,20 +16,33 @@ sess = sagemaker.Session(default_bucket=sagemaker_session_bucket)
 
 # GPT-J モデル設定
 MODEL_NAME = "gpt-j"
-MAX_CONTEXT_WIDTH = 2048
+MAX_CONTEXT_WIDTH = 20
+# MAX_CONTEXT_WIDTH = 2048
 NUM_LAYERS = 28
+# NUM_LAYERS = 2
+HIDDEN_WIDTH = 200
+# HIDDEN_WIDTH = 4096 
+NUM_HEADS = 10
+# NUM_HEADS = 16
+
 
 # よく変更する学習ジョブ設定
-N_INSTANCE = 4
-MAX_STEP = 	143000
+N_INSTANCE = 1
+# N_INSTANCE = 4
+MAX_STEP = 30
+# MAX_STEP = 143000
 TP_DEGREE = 8
 ACTIVATION_CHECKPOINTING = 1
 BATCH_SIZE = 8
-
+NUM_KEPT_CHECKPOINTS = 3
+CHECKPOINT_FREQ = 3
+# CHECKPOINT_FREQ = 2000
 INSTANCE_TYPE = "ml.p4d.24xlarge"
 VOLUME_SIZE = 1024
+MAX_RUN = 86400
 
-# 秘匿しておきたい AWS 環境の設定を config.json から読み込む
+
+# 秘匿しておきたい AWS 環境の設定を config.json から読み込みます
 with open("config.json") as f:
     config = json.loads(f.read())
 ROLE = config["aws_config"]["role"]
@@ -54,11 +68,11 @@ if __name__ == "__main__":
         "min_lr": 0.00001,
         "plateau": 0.0,
         "warmup": 0.003,
-        "num_kept_checkpoints": 1,
-        "checkpoint_freq": 2000,
-        "validation_freq": 100,
+        "num_kept_checkpoints": NUM_KEPT_CHECKPOINTS,
+        "checkpoint_freq": CHECKPOINT_FREQ,
+        "validation_freq": 200,
         # "enable_memory_profiling": 1,
-        "logging_freq": 20,
+        "logging_freq": 200,
         "zipped_data": 0,
         "data_type": "c4",
         "train_batch_size": BATCH_SIZE,
@@ -74,11 +88,12 @@ if __name__ == "__main__":
 
     model_config = {
         "max_context_width": MAX_CONTEXT_WIDTH,
-        "hidden_width": 4096,
+        "hidden_width": HIDDEN_WIDTH,
         "num_layers": NUM_LAYERS,
-        "num_heads": 16,
+        "num_heads": NUM_HEADS,
     }
     hyperparameters.update(model_config)
+
 
     # SageMaker でのが分散学習などに必要な設定を定義
     smp_configs = {
@@ -97,7 +112,6 @@ if __name__ == "__main__":
         "microbatches": 2,
     }
     hyperparameters.update(smp_configs)
-
 
 
     # SageMaker HuggingFace Estimater に分散学習を指定する distribution についての設定をします
@@ -141,18 +155,19 @@ if __name__ == "__main__":
 
 
 
-    # 学習ジョブの prefix を自由に自由に設定できます。
+    # 学習ジョブ名の prefix を自由に自由に設定できます。
     model_name = MODEL_NAME
     max_context_width = model_config["max_context_width"] 
     n_layers = model_config["num_layers"]
     base_job_name = f'GPT6B-nl{n_layers}-AC{ACTIVATION_CHECKPOINTING}-TP{TP_DEGREE}-BS{BATCH_SIZE}-ninstance{N_INSTANCE}-megagon'
+    
+    # 学習中に出力されたチェックポイントの S3 での保存先を指定します。
+    checkpoint_id = uuid.uuid4().hex
+    checkpoint_s3_uri = "s3://ricoh-poc/output/" + checkpoint_id
 
     # チェックポイントの保存先を指定し、学習ジョブ内のコンテナから
-    SM_DATA_DIR = "/opt/ml/input/data"
-    hyperparameters["checkpoint-dir"] = f"{SM_DATA_DIR}/checkpointdir"
-    # hyperparameters["model-dir"] = f"{SM_DATA_DIR}/modeldir"
-    # hyperparameters["training-dir"] = f"{SM_DATA_DIR}/train"
-    # hyperparameters["test-dir"] = f"{SM_DATA_DIR}/validation"
+    SM_CHECKPOINT_DIR = "/opt/ml/checkpoints"
+    hyperparameters["checkpoint-dir"] = f"{SM_CHECKPOINT_DIR}"
 
     metric_definitions = [
         {"Name": "Val loss", "Regex": "Validation loss: ([0-9.]+$)"},
@@ -169,11 +184,14 @@ if __name__ == "__main__":
         subnets=SUBNETS,
         security_group_ids=SECURITY_GROUP_IDS,
         volume_size=VOLUME_SIZE,
+        max_run=MAX_RUN,
         transformers_version="4.17",
         pytorch_version="1.10",
         py_version="py38",
         distribution=distribution,
         hyperparameters=hyperparameters,
+        checkpoint_s3_uri=checkpoint_s3_uri,
+        checkpoint_local_path=SM_CHECKPOINT_DIR,
         debugger_hook_config=False,
         disable_profiler=True,
         base_job_name=base_job_name
@@ -188,7 +206,6 @@ if __name__ == "__main__":
                                         file_system_type="FSxLustre",
                                         directory_path=VALIDATIOM_DIRECTORY_PATH,
                                         file_system_access_mode='ro')
-
     huggingface_estimator.fit({"train": train_fs_input, "test": val_fs_input})
     
     # S3 を使う場合はこちらのコメントアウトされている部分を活用してください

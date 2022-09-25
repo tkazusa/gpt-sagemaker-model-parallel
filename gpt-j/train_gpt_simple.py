@@ -31,7 +31,6 @@ logger = logging.getLogger(__name__)
 
 
 def get_learning_rate_scheduler(optimizer, args):
-
     # Add linear learning rate scheduler.
     if args.lr_decay_iters is not None:
         num_iters = args.lr_decay_iters
@@ -218,6 +217,7 @@ def save(
         if args.gather_if_shard > 0 or smp.rdp_rank() == 0:
             # if not gather the opt checkpoint, only save the model for rdp rank 0
             save_dict["model"] = model.local_state_dict()
+
     else:
         model_state_dict = model.state_dict(gather_to_rank0=True)
         if smp.rank() == 0:
@@ -225,8 +225,8 @@ def save(
                 translate_state_dict_to_hf_gpt2(model_state_dict, seq_length)
                 if translate_to_hf
                 else model_state_dict
-            )
-
+            )   
+    
     if args.fp16:
         if not partial and args.skip_full_optimizer:
             print("Skipping saving the final optimizer state")
@@ -363,7 +363,7 @@ def load_model_and_optimizer(
 def delete_oldest_ckpt(args, delete_on_rank0_only=False):
     to_delete = smp.rank() == 0 if delete_on_rank0_only else smp.local_rank() == 0
     if to_delete:
-        re_pattern = "trained_gpt_nparams-(?P<num_params>\d+)_steps-(?P<total_steps>\d+)\.pt"
+        re_pattern = "(\w+)_trained_gpt_nparams-(?P<num_params>\d+)_steps-(?P<total_steps>\d+)\.pt"
 
         # partial
         re_pattern += "_(?P<pp_rank>\d+)_(?P<tp_rank>\d+)"
@@ -374,7 +374,9 @@ def delete_oldest_ckpt(args, delete_on_rank0_only=False):
             if re.match(re_pattern, p):
                 step = int(re.match(re_pattern, p).group("total_steps"))
                 path = os.path.join(args.checkpoint_dir, p)
+                print("--delete path: ", path)
                 paths_per_step[step].append(path)
+                print("--delete path per steps: ", path)
 
         if paths_per_step:
             oldest_step = sorted(paths_per_step.keys())[0]
@@ -616,10 +618,13 @@ def train(
                 if args.preserve_np_state > 0:
                     np.random.set_state(cur_state)
 
-            # checkpoint
+            # checkpoint を保存する
             if not (total_steps % args.checkpoint_freq):
-                base_path = f"trained_gpt_nparams-{num_params}_steps-{total_steps}.pt"
-                out_path = os.path.join(args.checkpoint_dir, base_path)
+                base_partial_path = f"partial_trained_gpt_nparams-{num_params}_steps-{total_steps}.pt"
+                base_full_path = f"full_trained_gpt_nparams-{num_params}_steps-{total_steps}.pt"
+                
+                ## partial_path = os.path.join(args.checkpoint_dir, "partial")
+                ## out_partial_path = os.path.join(partial_path, base_path)
                 total_ckpts = total_steps // args.checkpoint_freq
 
                 delete_oldest_ckpt(args, delete_on_rank0_only=args.use_fsx > 0)
@@ -636,8 +641,10 @@ def train(
                         filename=os.path.join(args.model_dir, "saved_partial_sum"),
                     )
 
+                # 再開時のためのモデルやオプティマイザの保存
+                out_partial_path = os.path.join(args.checkpoint_dir, base_partial_path)
                 save(
-                    out_path,
+                    out_partial_path,
                     model,
                     optimizer,
                     lr_scheduler,
@@ -649,6 +656,26 @@ def train(
                     partial=True,
                     batch_idx=batch_idx + 1,
                 )
+
+                # 評価のためのモデルファイルファイルの保存
+                out_full_path = os.path.join(args.checkpoint_dir, base_full_path)
+                if smp.rdp_rank() == 0:
+                    save(
+                        out_full_path,
+                        model,
+                        optimizer,
+                        lr_scheduler,
+                        model_config,
+                        num_params,
+                        total_steps,
+                        -1,
+                        args,
+                        partial=False,
+                        translate_to_hf=smp.tp_size() > 1,
+                        seq_length=args.max_context_width,
+                    )
+
+
 
             if args.logits_output:
                 to_save["loss"].append(loss.item())
@@ -1004,6 +1031,8 @@ def main():
         eos_token_id=50256,
         return_dict=True,
     )
+
+    print(f"----model config--- {model_config}")
 
     # the following improves start-up time by skipping proper initialization
     # of weights in the original model. this is not a problem because DistributedModel
