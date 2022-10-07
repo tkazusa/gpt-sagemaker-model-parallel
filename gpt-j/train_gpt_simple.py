@@ -306,7 +306,7 @@ def load_model_and_optimizer(
             opt_checkpoint = torch.load(
                 f"{local_ckpt_path}_{smp.pp_rank()}_{smp.tp_rank()}_{smp.rdp_rank()}"
             )
-
+    
     if load_model:
         checkpointed_model = (
             translate_hf_state_dict_to_smdistributed(checkpoint["model"], seq_length)
@@ -363,7 +363,7 @@ def load_model_and_optimizer(
 def delete_oldest_ckpt(args, delete_on_rank0_only=False):
     to_delete = smp.rank() == 0 if delete_on_rank0_only else smp.local_rank() == 0
     if to_delete:
-        re_pattern = "(\w+)_trained_gpt_nparams-(?P<num_params>\d+)_steps-(?P<total_steps>\d+)\.pt"
+        re_pattern = "trained_gpt_nparams-(?P<num_params>\d+)_steps-(?P<total_steps>\d+)\.pt"
 
         # partial
         re_pattern += "_(?P<pp_rank>\d+)_(?P<tp_rank>\d+)"
@@ -620,7 +620,7 @@ def train(
 
             # checkpoint を保存する
             if not (total_steps % args.checkpoint_freq):
-                base_partial_path = f"partial_trained_gpt_nparams-{num_params}_steps-{total_steps}.pt"
+                base_partial_path = f"trained_gpt_nparams-{num_params}_steps-{total_steps}.pt"
                 base_full_path = f"full_trained_gpt_nparams-{num_params}_steps-{total_steps}.pt"
                 
                 ## partial_path = os.path.join(args.checkpoint_dir, "partial")
