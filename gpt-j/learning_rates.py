@@ -17,7 +17,9 @@
 """Learning rate decay functions."""
 
 import math
+
 import smdistributed.modelparallel.torch as smp
+
 
 class AnnealingLR(object):
     """Anneals the learning rate."""

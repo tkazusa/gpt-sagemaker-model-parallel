@@ -6,6 +6,7 @@ import sagemaker
 import sagemaker.huggingface
 from sagemaker.huggingface import HuggingFace
 from sagemaker.inputs import FileSystemInput
+from sagemaker.pytorch import PyTorch
 
 sess = sagemaker.Session()
 sagemaker_session_bucket = None
@@ -16,28 +17,28 @@ sess = sagemaker.Session(default_bucket=sagemaker_session_bucket)
 
 # GPT-J モデル設定
 MODEL_NAME = "gpt-j"
-MAX_CONTEXT_WIDTH = 20
 # MAX_CONTEXT_WIDTH = 2048
-NUM_LAYERS = 28
-# NUM_LAYERS = 2
-HIDDEN_WIDTH = 200
+MAX_CONTEXT_WIDTH = 512
+# NUM_LAYERS = 28
+NUM_LAYERS = 2
 # HIDDEN_WIDTH = 4096 
-NUM_HEADS = 10
+HIDDEN_WIDTH = 200
 # NUM_HEADS = 16
+NUM_HEADS = 10
 
 
 # よく変更する学習ジョブ設定
 N_INSTANCE = 1
-# N_INSTANCE = 4
-MAX_STEP = 30
+# N_INSTANCE = 1
 # MAX_STEP = 143000
+MAX_STEP = 100
 TP_DEGREE = 8
 ACTIVATION_CHECKPOINTING = 1
-BATCH_SIZE = 8
+BATCH_SIZE = 20
 NUM_KEPT_CHECKPOINTS = 3
-CHECKPOINT_FREQ = 3
-# CHECKPOINT_FREQ = 2000
-INSTANCE_TYPE = "ml.p4d.24xlarge"
+# CHECKPOINT_FREQ = 50
+CHECKPOINT_FREQ = 50
+INSTANCE_TYPE = "ml.p3.16xlarge"
 VOLUME_SIZE = 1024
 MAX_RUN = 86400
 
@@ -52,6 +53,7 @@ SECURITY_GROUP_IDS = config["fsx_config"]["security_group_ids"]
 FILE_SYSTEM_ID = config["fsx_config"]["file_system_id"]
 TRAIN_DIRECTORY_PATH = config["fsx_config"]["train_directory_path"]
 VALIDATIOM_DIRECTORY_PATH = config["fsx_config"]["validation_directory_path"]
+CHECKPOINT_DIRECTORY_PATH = config["fsx_config"]["checkpoint_directory_path"]
 
 
 if __name__ == "__main__":
@@ -62,26 +64,28 @@ if __name__ == "__main__":
         "max_steps": MAX_STEP,
         "seed": 12345,
         "fp16": 1,
-        "lr": 1.2e-4,
+        "lr": 1.2e-4*2,
         "lr_decay_style": "cosine",
-        "lr_decay_iters": 20000,
-        "min_lr": 0.00001,
+        "lr_decay_iters": 47683,
+        "min_lr": 0.00001*2,
         "plateau": 0.0,
         "warmup": 0.003,
         "num_kept_checkpoints": NUM_KEPT_CHECKPOINTS,
         "checkpoint_freq": CHECKPOINT_FREQ,
-        "validation_freq": 200,
+        "validation_freq": 10,
         # "enable_memory_profiling": 1,
-        "logging_freq": 200,
+        "logging_freq": 10,
         "zipped_data": 0,
         "data_type": "c4",
+        "use_wiki_data": 0,
         "train_batch_size": BATCH_SIZE,
         "val_batch_size": BATCH_SIZE,
         "logits_output": "logits_output",
         "weight_decay": 0.2,
         "use_adamw": 1, 
         # below flag loads model and optimizer state from checkpoint_s3_uri
-        # 'load_partial': 1,
+        # 'load_partial': 1, # こちらを有効にしてください
+        # 'load_full': 1, # こちらを有効にしてください
     }
     # ジョブにわたすハイパラ定義に格納
     hyperparameters.update(training_config)
@@ -134,7 +138,7 @@ if __name__ == "__main__":
         "partitions": hyperparameters["pipeline_parallel_degree"],
         "shard_optimizer_state": hyperparameters["shard_optimizer_state"] > 0,
         "prescaled_batch": hyperparameters["prescaled_batch"] > 0,
-        "fp16_params": hyperparameters["fp16"] > 0,
+        "fp16": hyperparameters["fp16"] > 0,
         "optimize": hyperparameters["optimize"],
         "auto_partition": False if hyperparameters["manual_partition"] else True,
         "default_partition": 0,
@@ -159,23 +163,26 @@ if __name__ == "__main__":
     model_name = MODEL_NAME
     max_context_width = model_config["max_context_width"] 
     n_layers = model_config["num_layers"]
-    base_job_name = f'GPT6B-nl{n_layers}-AC{ACTIVATION_CHECKPOINTING}-TP{TP_DEGREE}-BS{BATCH_SIZE}-ninstance{N_INSTANCE}-megagon'
+    base_job_name = f'speed-GPT6B-nl{n_layers}-AC{ACTIVATION_CHECKPOINTING}-TP{TP_DEGREE}-BS{BATCH_SIZE}-ninstance{N_INSTANCE}-megagon'
     
     # 学習中に出力されたチェックポイントの S3 での保存先を指定します。
-    checkpoint_id = uuid.uuid4().hex
-    checkpoint_s3_uri = "s3://ricoh-poc/output/" + checkpoint_id
-
+    # checkpoint_id = uuid.uuid4().hex
+    # checkpoint_s3_uri = "s3://ricoh-poc/output/" + checkpoint_id + "1"
+    # checkpoint_s3_uri = "s3://ricoh-poc/output/8de877f4a81c40efb225d2dacbb9c967"
+    
     # チェックポイントの保存先を指定し、学習ジョブ内のコンテナから
-    SM_CHECKPOINT_DIR = "/opt/ml/checkpoints"
-    hyperparameters["checkpoint-dir"] = f"{SM_CHECKPOINT_DIR}"
+    # SM_CHECKPOINT_DIR = "/opt/ml/checkpoints"
+    # hyperparameters["checkpoint-dir"] = f"{SM_CHECKPOINT_DIR}"
+    hyperparameters["use_fsx"] = 1
 
     metric_definitions = [
         {"Name": "Val loss", "Regex": "Validation loss: ([0-9.]+$)"},
         {"Name": "Val ppl", "Regex": "Validation perplexity: ([0-9.]+$)"},
     ]
 
-    huggingface_estimator = HuggingFace(
-        entry_point="train_gpt_simple.py",
+    huggingface_estimator = PyTorch(
+        # entry_point="train_gpt_simple.py",
+        entry_point="train_gpt_st.py",
         source_dir=os.getcwd(),
         role=ROLE,
         metrics_definition=metric_definitions,
@@ -185,13 +192,14 @@ if __name__ == "__main__":
         security_group_ids=SECURITY_GROUP_IDS,
         volume_size=VOLUME_SIZE,
         max_run=MAX_RUN,
-        transformers_version="4.17",
-        pytorch_version="1.10",
+        # transformers_version="4.17",
+        framework_version="1.12",
         py_version="py38",
         distribution=distribution,
         hyperparameters=hyperparameters,
-        checkpoint_s3_uri=checkpoint_s3_uri,
-        checkpoint_local_path=SM_CHECKPOINT_DIR,
+        # checkpoint_s3_uri=checkpoint_s3_uri,
+        # checkpoint_local_path=SM_CHECKPOINT_DIR,
+        # model_uri="s3://sagemaker-us-west-2-476480844082/new-large-GPT6B-nl28-AC1-TP8-BS8-ninsta-2022-10-25-02-45-05-344/output/model.tar.gz",
         debugger_hook_config=False,
         disable_profiler=True,
         base_job_name=base_job_name
@@ -206,7 +214,13 @@ if __name__ == "__main__":
                                         file_system_type="FSxLustre",
                                         directory_path=VALIDATIOM_DIRECTORY_PATH,
                                         file_system_access_mode='ro')
-    huggingface_estimator.fit({"train": train_fs_input, "test": val_fs_input})
+    checkpoint_fs_input = FileSystemInput(file_system_id=FILE_SYSTEM_ID,
+                                        file_system_type="FSxLustre",
+                                        directory_path=CHECKPOINT_DIRECTORY_PATH,
+                                        file_system_access_mode='rw')
+
+
+    huggingface_estimator.fit({"train": train_fs_input, "test": val_fs_input, "checkpoint": checkpoint_fs_input})
     
     # S3 を使う場合はこちらのコメントアウトされている部分を活用してください
     # train_dir = "s3://ricoh-poc/c4/ja_gpt_2048/train/"
